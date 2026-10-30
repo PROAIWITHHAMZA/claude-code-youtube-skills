@@ -1,0 +1,655 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+:root{--red:#ef2332;--hot:#ff5a5a;--ink:#050507;--line:rgba(255,255,255,.14);--muted:#a3a6b4;--green:#22c55e;--amber:#f5a524}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:1080px;overflow:hidden;background:var(--ink);color:#fff;
+  font-family:'Segoe UI Variable Display','Segoe UI',sans-serif;-webkit-font-smoothing:antialiased}
+#bg,#fx,#stage,#vig,#hud,#cap,#grain{position:absolute;left:0;top:0;width:1920px;height:1080px}
+#fx,#grain{pointer-events:none}
+#grain{opacity:.075;mix-blend-mode:overlay}
+#vig{background:radial-gradient(ellipse at 50% 45%,rgba(0,0,0,0) 55%,rgba(0,0,0,.6) 100%)}
+.abs{position:absolute}
+.glass{background:linear-gradient(155deg,rgba(255,255,255,.11),rgba(255,255,255,.025));border:1px solid var(--line);
+  backdrop-filter:blur(24px) saturate(140%);border-radius:28px;
+  box-shadow:0 40px 90px rgba(0,0,0,.6),inset 0 1px 0 rgba(255,255,255,.14)}
+.kicker{font-weight:700;letter-spacing:.3em;font-size:24px;color:var(--hot);text-transform:uppercase}
+.big{font-weight:800;letter-spacing:-.035em;line-height:.98}
+.grad{background:linear-gradient(100deg,#fff 0%,#fff 40%,#ff7a7a 72%,#ef2332 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.gradg{background:linear-gradient(100deg,#fff 0%,#c9ffd9 45%,#22c55e 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.mono{font-family:'Cascadia Mono','Consolas',monospace}
+.m{display:inline-block;overflow:hidden;vertical-align:bottom;padding:0 .02em .1em}
+.m>span{display:inline-block;will-change:transform}
+.pill{display:inline-flex;align-items:center;gap:12px;border-radius:999px;padding:10px 22px;font-weight:700;font-size:24px;letter-spacing:.08em}
+.shadowtxt{text-shadow:0 6px 40px rgba(0,0,0,.6)}
+/* captions */
+#cap{display:flex;justify-content:center;align-items:flex-end;padding-bottom:70px;pointer-events:none}
+#capbox{font-weight:700;font-size:54px;letter-spacing:-.01em;text-align:center;max-width:1500px;line-height:1.2;
+  text-shadow:0 4px 18px rgba(0,0,0,.9),0 0 2px rgba(0,0,0,1)}
+#capbox span{display:inline-block;margin:0 .14em;transition:none}
+#capbox .w0{color:rgba(255,255,255,.42)}
+#capbox .w1{color:#fff}
+#capbox .on{color:#fff;background:var(--red);border-radius:12px;padding:0 .16em;margin:0 .02em;box-shadow:0 8px 30px rgba(239,35,50,.55)}
+#capband{position:absolute;left:0;right:0;bottom:0;height:300px;background:linear-gradient(0deg,rgba(0,0,0,.55),rgba(0,0,0,0))}
+</style></head>
+<body>
+<div id="bg"></div><canvas id="fx" width="1920" height="1080"></canvas><div id="stage"></div>
+<div id="vig"></div><div id="hud"></div><div id="cap"><div id="capband"></div><div id="capbox"></div></div>
+<canvas id="grain" width="480" height="270" style="width:1920px;height:1080px"></canvas>
+<script src="timeline.js"></script>
+<script>
+"use strict";
+const W = 1920, H = 1080, A = TL.assets;
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, p) => a + (b - a) * p;
+const eo = x => { x = clamp(x); return x === 1 ? 1 : 1 - Math.pow(2, -10 * x); };          // expo out
+const eio = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+const bk = x => { x = clamp(x); const c = 1.6; return 1 + (c + 1) * Math.pow(x - 1, 3) + c * Math.pow(x - 1, 2); }; // back out
+const P = (t, a, d) => eo((t - a) / d);
+const PB = (t, a, d) => bk((t - a) / d);
+function el(tag, cls, css, parent, html) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (css) e.style.cssText = css;
+  if (html !== undefined) e.innerHTML = html;
+  (parent || document.body).appendChild(e);
+  return e;
+}
+const fmt = n => Math.round(n).toLocaleString("en-US");
+function rng(seed) { let s = seed >>> 0; return () => ((s = (s * 1664525 + 1013904223) >>> 0) / 4294967296); }
+function masked(parent, text, cls, css) {   // words that rise out of a mask
+  const box = el("div", cls, css, parent);
+  const spans = text.split(" ").map(w => { const m = el("span", "m", "margin-right:.24em", box); el("span", "", "", m, w); return m.firstChild; });
+  return { box, spans, set(t, start, gap = 0.06, d = 0.55) {
+    spans.forEach((s, i) => { const p = P(t, start + i * gap, d); s.style.transform = `translateY(${(1 - p) * 110}%)`; }); } };
+}
+function sweep(parent, css) {  // a diagonal light sweep
+  const s = el("div", "abs", "top:-20%;height:140%;width:240px;transform:skewX(-20deg);background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.22),rgba(255,255,255,0));mix-blend-mode:overlay;" + (css || ""), parent);
+  return (p, x0, x1) => { s.style.left = lerp(x0, x1, p) + "px"; s.style.opacity = p > 0 && p < 1 ? 1 : 0; };
+}
+function ring(parent, size, css) {   // score ring
+  const r = size / 2 - 10, c = 2 * Math.PI * r;
+  const box = el("div", "abs", `width:${size}px;height:${size}px;${css}`, parent);
+  box.innerHTML = `<svg width="${size}" height="${size}" style="position:absolute;left:0;top:0;transform:rotate(-90deg)">
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" stroke="rgba(255,255,255,.12)" stroke-width="12" fill="none"/>
+    <circle class="arc" cx="${size / 2}" cy="${size / 2}" r="${r}" stroke-width="12" fill="none" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c}"/></svg>
+    <div class="num big" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:${size * .34}px"></div>`;
+  const arc = box.querySelector(".arc"), num = box.querySelector(".num");
+  return (v, force) => { const col = force || (v >= 72 ? "#22c55e" : v >= 55 ? "#f5a524" : "#ef2332");
+    arc.style.strokeDashoffset = c * (1 - v / 100); arc.style.stroke = col;
+    arc.style.filter = `drop-shadow(0 0 12px ${col})`; num.textContent = Math.round(v); };
+}
+function vseek(v, t) {
+  t = Math.max(0, Math.min(t, (v.duration || 1e9) - 0.05));
+  if (Math.abs(v.currentTime - t) < 0.004) return Promise.resolve();
+  return new Promise(r => { v.onseeked = () => r(); v.currentTime = t; });
+}
+function video(parent, src, css) {
+  const v = el("video", "", css, parent); v.muted = true; v.preload = "auto"; v.src = src;
+  READY.push(new Promise(r => { if (v.readyState >= 2) r(); else v.addEventListener("loadeddata", () => r(), { once: true }); }));
+  return v;
+}
+function pix(canvas, src) {   // draw an image into a small canvas (shown pixelated = real feed size)
+  const i = new Image(); i.src = src;
+  READY.push(i.decode().then(() => canvas.getContext("2d").drawImage(i, 0, 0, canvas.width, canvas.height)).catch(() => {}));
+}
+function img(parent, src, css) {
+  const i = el("img", "", css, parent); i.src = src;
+  READY.push(i.decode().catch(() => {}));
+  return i;
+}
+let READY = [];
+
+/* ------------------------------------------------------------------ background, particles, grain */
+const bg = document.getElementById("bg");
+bg.style.background = "radial-gradient(ellipse 70% 60% at 18% 8%,rgba(150,14,28,.55),rgba(0,0,0,0) 60%),radial-gradient(ellipse 60% 55% at 90% 100%,rgba(110,10,22,.45),rgba(0,0,0,0) 60%),#050507";
+const floor = el("div", "abs", "left:-480px;width:2880px;top:640px;height:900px;transform-origin:50% 0;transform:perspective(700px) rotateX(72deg);" +
+  "background-image:linear-gradient(rgba(255,70,80,.22) 2px,transparent 2px),linear-gradient(90deg,rgba(255,70,80,.22) 2px,transparent 2px);" +
+  "background-size:120px 120px;-webkit-mask-image:linear-gradient(180deg,rgba(0,0,0,0),#000 30%,#000 60%,rgba(0,0,0,0));opacity:.55", bg);
+const beams = [0, 1, 2].map(i => el("div", "abs", `top:-400px;width:420px;height:2000px;filter:blur(60px);background:linear-gradient(180deg,rgba(239,35,50,0),rgba(239,35,50,.22),rgba(239,35,50,0));transform-origin:50% 0`, bg));
+const fx = document.getElementById("fx").getContext("2d");
+const R = rng(7), EMB = Array.from({ length: 70 }, () => ({ x: R() * W, y: R() * H, v: 12 + R() * 40, s: .6 + R() * 2.2, ph: R() * 6.3, a: .25 + R() * .6 }));
+const gctx = document.getElementById("grain").getContext("2d");
+const NOISE = Array.from({ length: 6 }, (_, k) => { const d = gctx.createImageData(480, 270), r = rng(100 + k);
+  for (let i = 0; i < d.data.length; i += 4) { const v = r() * 255; d.data[i] = d.data[i + 1] = d.data[i + 2] = v; d.data[i + 3] = 255; } return d; });
+function drawBG(t) {
+  floor.style.backgroundPosition = `0 ${(t * 40) % 120}px`;
+  beams.forEach((b, i) => { b.style.left = (300 + i * 620 + Math.sin(t * .2 + i * 2) * 120) + "px";
+    b.style.transform = `rotate(${-24 + i * 14 + Math.sin(t * .15 + i) * 6}deg)`; b.style.opacity = .55 + .35 * Math.sin(t * .4 + i * 1.7); });
+  fx.clearRect(0, 0, W, H); fx.globalCompositeOperation = "lighter";
+  for (const e of EMB) {
+    const y = ((e.y - t * e.v) % H + H) % H, x = e.x + Math.sin(t * .6 + e.ph) * 24;
+    const g = fx.createRadialGradient(x, y, 0, x, y, e.s * 6); g.addColorStop(0, `rgba(255,120,110,${e.a})`); g.addColorStop(1, "rgba(255,40,40,0)");
+    fx.fillStyle = g; fx.beginPath(); fx.arc(x, y, e.s * 6, 0, 6.283); fx.fill();
+  }
+  gctx.putImageData(NOISE[Math.floor(t * 24) % 6], 0, 0);
+}
+
+/* ------------------------------------------------------------------ HUD and captions */
+const hud = document.getElementById("hud");
+const bar = el("div", "abs", "left:0;top:0;height:5px;background:linear-gradient(90deg,#ef2332,#ff7a7a);box-shadow:0 0 18px #ef2332", hud);
+const chip = el("div", "abs pill glass", "left:56px;top:44px;font-size:22px;border-radius:999px;padding:12px 22px", hud);
+const capbox = document.getElementById("capbox"), capband = document.getElementById("capband");
+const LINES = [];
+TL.scenes.forEach(s => s.lines.forEach(l => { if (s.captions !== false) LINES.push({ s: s.start + l.s, e: s.start + l.e, words: l.words.map(w => ({ w: w.w, s: s.start + l.s + w.s, e: s.start + l.s + w.e })) }); }));
+LINES.forEach(L => { // phrases of up to 6 words, broken after punctuation
+  L.ph = []; let cur = [];
+  L.words.forEach((w, i) => { cur.push(i); if (cur.length >= 6 || /[.,?!:;]$/.test(w.w)) { L.ph.push(cur); cur = []; } });
+  if (cur.length) L.ph.push(cur);
+});
+let capKey = "";
+function drawCaptions(t) {
+  const L = LINES.find(l => t >= l.s - 0.05 && t <= l.e + 0.25);
+  if (!L) { capbox.innerHTML = ""; capKey = ""; capband.style.opacity = 0; return; }
+  capband.style.opacity = 1;
+  let wi = 0; L.words.forEach((w, i) => { if (w.s <= t) wi = i; });
+  const ph = L.ph.find(p => p.includes(wi)) || L.ph[0];
+  const key = L.s + ":" + ph[0];
+  if (key !== capKey) { capbox.innerHTML = ph.map(i => `<span>${L.words[i].w}</span>`).join(""); capKey = key; }
+  [...capbox.children].forEach((s, k) => { const i = ph[k]; s.className = i < wi ? "w1" : i === wi ? "on" : "w0"; });
+}
+function drawHUD(t, sc) {
+  bar.style.width = (t / TL.total * W) + "px";
+  if (sc.pill) {
+    chip.style.opacity = 1;
+    chip.innerHTML = `<span style="color:#ff7a7a">MISTAKE ${sc.pill}</span><span style="color:rgba(255,255,255,.45)">/ 5</span>` +
+      [1, 2, 3, 4, 5].map(i => `<span style="width:12px;height:12px;border-radius:6px;background:${i <= sc.pill ? "#ef2332" : "rgba(255,255,255,.2)"};box-shadow:${i === sc.pill ? "0 0 12px #ef2332" : "none"}"></span>`).join("");
+  } else chip.style.opacity = 0;
+}
+
+/* ------------------------------------------------------------------ scene helpers */
+function S_(sc) {
+  sc.L = i => (sc.lines[i] || sc.lines[sc.lines.length - 1]).s;
+  sc.E = i => (sc.lines[i] || sc.lines[sc.lines.length - 1]).e;
+  sc.cue = (i, key) => { const l = sc.lines[i]; if (!l) return 0; key = key.toLowerCase();
+    const w = l.words.find(w => w.w.toLowerCase().replace(/[^a-z0-9.\-']/g, "").startsWith(key)); return l.s + (w ? w.s : 0); };
+  return sc;
+}
+function frame(parent, css, title) {  // a glass app window
+  const f = el("div", "abs glass", "overflow:hidden;" + css, parent);
+  const top = el("div", "abs", "left:0;right:0;top:0;height:46px;background:rgba(255,255,255,.05);border-bottom:1px solid rgba(255,255,255,.08)", f);
+  ["#ff5f57", "#febc2e", "#28c840"].forEach((c, i) => el("div", "abs", `left:${20 + i * 22}px;top:17px;width:12px;height:12px;border-radius:6px;background:${c}`, top));
+  if (title) el("div", "abs mono", "left:100px;top:12px;font-size:17px;color:rgba(255,255,255,.55)", top, title);
+  return f;
+}
+const TICK = '<svg width="34" height="34" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#22c55e"/><path d="M6.5 12.5l3.5 3.5 7.5-8" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const CROSS = '<svg width="34" height="34" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#ef2332"/><path d="M8 8l8 8M16 8l-8 8" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>';
+const LOCK = '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.8)" stroke-width="1.8"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+
+/* ------------------------------------------------------------------ scenes */
+const SC = {};
+
+SC.coldopen = (root, sc) => {
+  const d = sc.data;
+  // beat A: the stalled-views chart
+  const A1 = el("div", "abs", "left:0;top:0;width:1920px;height:1080px", root);
+  const q = masked(A1, "Why do your videos stall?", "abs big shadowtxt", "left:0;right:0;top:120px;text-align:center;font-size:132px");
+  const pts = []; for (let i = 0; i <= 60; i++) { const x = i / 60; const y = x < .45 ? Math.pow(x / .45, 1.6) * .8 : .8 + Math.sin(x * 40) * .012 - (x - .45) * .1; pts.push([260 + x * 1400, 820 - y * 420]); }
+  const path = "M" + pts.map(p => p.map(v => v.toFixed(1)).join(",")).join(" L");
+  A1.insertAdjacentHTML("beforeend", `<svg class="abs" style="left:0;top:0" width="1920" height="1080">
+    <defs><linearGradient id="lg" x1="0" x2="1"><stop offset="0" stop-color="#ff7a7a"/><stop offset="1" stop-color="#ef2332"/></linearGradient>
+    <linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="rgba(239,35,50,.35)"/><stop offset="1" stop-color="rgba(239,35,50,0)"/></linearGradient></defs>
+    ${[0, 1, 2, 3].map(i => `<line x1="260" x2="1660" y1="${400 + i * 140}" y2="${400 + i * 140}" stroke="rgba(255,255,255,.07)" stroke-width="2"/>`).join("")}
+    <path id="area" d="${path} L1660,820 L260,820 Z" fill="url(#fill)" opacity="0"/>
+    <path id="ln" d="${path}" stroke="url(#lg)" stroke-width="7" fill="none" stroke-linecap="round" style="filter:drop-shadow(0 0 14px #ef2332)"/>
+    <circle id="dot" r="12" fill="#fff" style="filter:drop-shadow(0 0 16px #ff4b4b)"/></svg>`);
+  const ln = A1.querySelector("#ln"), area = A1.querySelector("#area"), dot = A1.querySelector("#dot"), len = ln.getTotalLength();
+  ln.style.strokeDasharray = len;
+  const flat = el("div", "abs pill", "left:1330px;top:300px;background:rgba(239,35,50,.16);border:1px solid rgba(239,35,50,.6);color:#ff8080", A1, "VIEWS: FLAT");
+  // beat B: three pieces of evidence
+  const B = el("div", "abs", "left:0;top:0;width:1920px;height:1080px;perspective:1800px", root);
+  const cards = [0, 1, 2].map(i => el("div", "abs glass", `left:${150 + i * 560}px;top:250px;width:500px;height:400px;padding:34px;transform-style:preserve-3d`, B));
+  el("div", "kicker", "font-size:20px;margin-bottom:26px", cards[0], "THUMBNAIL AT 168 PX");
+  const tc = el("canvas", "", "width:420px;height:236px;image-rendering:pixelated;border-radius:10px", cards[0]); tc.width = 168; tc.height = 94;
+  pix(tc, A.thumbA);
+  el("div", "pill", "margin-top:22px;background:rgba(239,35,50,.18);color:#ff8080;border:1px solid rgba(239,35,50,.6)", cards[0], "CONTRAST 2.9 : 1 &nbsp;·&nbsp; FAIL");
+  el("div", "kicker", "font-size:20px;margin-bottom:22px", cards[1], "OPENING LINE");
+  el("div", "", "font-size:34px;font-weight:600;line-height:1.25;color:#e8e8ee", cards[1], "“Hey guys, welcome back, in this video I’ll show you some AI tips.”");
+  const r1 = ring(cards[1], 130, "right:30px;bottom:26px");
+  el("div", "kicker", "font-size:20px;margin-bottom:22px", cards[2], "RAW TAKE");
+  const wv = el("div", "", "position:relative;height:200px;display:flex;align-items:center;gap:3px", cards[2]);
+  const rr = rng(3); for (let i = 0; i < 70; i++) el("div", "", `width:3px;height:${20 + rr() * 150}px;border-radius:2px;background:${i < 22 ? "#ef2332" : "rgba(255,255,255,.75)"}`, wv);
+  el("div", "abs", "left:0;top:0;width:96px;height:200px;border:2px dashed #ef2332;border-radius:10px;background:rgba(239,35,50,.12)", wv);
+  el("div", "pill", "margin-top:22px;background:rgba(239,35,50,.18);color:#ff8080;border:1px solid rgba(239,35,50,.6)", cards[2], "RETAKE LEFT IN");
+  const five = el("div", "abs big", "left:0;right:0;top:330px;text-align:center;font-size:250px", root, '<span class="grad">5 MISTAKES</span>');
+  const fsub = el("div", "abs", "left:0;right:0;top:620px;text-align:center;font-size:44px;font-weight:600;color:rgba(255,255,255,.75)", root, "you’re probably making too");
+  const sw = sweep(five);
+  const tB = sc.L(1) + 0.15, t5 = sc.cue(1, "5");
+  return t => {
+    q.set(t, 0.15);
+    const pa = P(t, 0.3, Math.max(0.8, tB - 0.6));
+    ln.style.strokeDashoffset = len * (1 - pa); area.style.opacity = pa * .9;
+    const pt = ln.getPointAtLength(len * pa); dot.setAttribute("cx", pt.x); dot.setAttribute("cy", pt.y);
+    flat.style.opacity = P(t, tB - 0.9, .4); flat.style.transform = `scale(${lerp(.8, 1, PB(t, tB - .9, .5))})`;
+    const outA = P(t, tB - 0.2, .5);
+    A1.style.opacity = 1 - outA; A1.style.transform = `scale(${1 + outA * .15})`; A1.style.filter = outA > 0 ? `blur(${outA * 10}px)` : "none";
+    cards.forEach((c, i) => { const p = PB(t, tB + i * .32, .7), back = P(t, t5 - .15, .6);
+      c.style.opacity = clamp((t - tB - i * .32) * 3) * (1 - back * .8);
+      c.style.transform = `translateZ(${-back * 500}px) rotateY(${(1 - p) * (40 - i * 40)}deg) translateY(${(1 - p) * 120}px)`;
+      c.style.filter = back > 0 ? `blur(${back * 8}px)` : "none"; });
+    r1(24 * P(t, tB + .6, 1));
+    const p5 = P(t, t5 - .1, .6);
+    five.style.opacity = p5; five.style.transform = `scale(${lerp(1.35, 1, p5)})`; five.style.filter = p5 < 1 ? `blur(${(1 - p5) * 16}px)` : "none";
+    fsub.style.opacity = P(t, t5 + .5, .5); sw(clamp((t - t5 - .4) / .9), -300, 1900);
+  };
+};
+
+SC.zayn = (root, sc) => {
+  const v = video(root, A.zayn, "position:absolute;left:0;top:0;width:1920px;height:1080px;object-fit:cover");
+  const lt = el("div", "abs glass", "left:80px;top:690px;width:620px;height:150px;border-radius:22px;padding:22px 32px;overflow:hidden", root);
+  el("div", "abs", "left:0;top:0;bottom:0;width:10px;background:#ef2332;box-shadow:0 0 24px #ef2332", lt);
+  el("div", "big", "font-size:62px", lt, "ZAYN");
+  el("div", "", "font-size:26px;font-weight:600;color:rgba(255,255,255,.75);margin-top:6px", lt, "AI host &nbsp;·&nbsp; real work, no hype");
+  return async t => { const p = P(t, .35, .7); lt.style.opacity = p; lt.style.transform = `translateX(${(1 - p) * -80}px)`;
+    await vseek(v, t); };
+};
+
+SC.promise = (root, sc) => {
+  el("div", "abs kicker", "left:0;right:0;top:120px;text-align:center", root, "BY THE END OF THIS VIDEO");
+  const h = masked(root, "Fix all 5. Today.", "abs big", "left:0;right:0;top:170px;text-align:center;font-size:120px");
+  const row = el("div", "abs", "left:0;top:380px;width:1920px;height:440px;perspective:1600px", root);
+  const inner = el("div", "abs", "left:0;top:0;width:1920px;height:440px;transform-style:preserve-3d", row);
+  const slabs = sc.data.mistakes.map((m, i) => { const s = el("div", "abs glass", `left:${150 + i * 330}px;top:20px;width:300px;height:390px;padding:30px;overflow:hidden`, inner);
+    el("div", "big", "font-size:110px;color:transparent;-webkit-text-stroke:2px rgba(255,120,120,.75)", s, "0" + (i + 1));
+    el("div", "", "margin-top:40px;font-size:34px;font-weight:700;line-height:1.15;filter:blur(11px);opacity:.9", s, m);
+    el("div", "abs", "right:26px;top:30px", s, LOCK); return s; });
+  const sw = sweep(inner, "width:300px");
+  return t => {
+    h.set(t, .1);
+    inner.style.transform = `rotateY(${lerp(-10, 8, t / sc.dur)}deg) rotateX(6deg)`;
+    slabs.forEach((s, i) => { const p = PB(t, .5 + i * .14, .7); s.style.opacity = clamp((t - .5 - i * .14) * 4);
+      s.style.transform = `translateY(${(1 - p) * 160}px) translateZ(${(1 - p) * -300}px)`; });
+    sw(clamp((t - 1.6) / 1.6), -200, 1950);
+  };
+};
+
+SC.title = (root, sc) => {
+  const n = sc.data.n, g = el("div", "abs", "left:0;top:0;width:1920px;height:1080px", root);
+  const numO = el("div", "abs big", "right:110px;top:150px;font-size:560px;color:transparent;-webkit-text-stroke:3px rgba(255,255,255,.18)", g, "0" + n);
+  const numF = el("div", "abs big grad", "right:110px;top:150px;font-size:560px", g, "0" + n);
+  const flare = el("div", "abs", "left:0;top:538px;height:4px;width:1920px;background:linear-gradient(90deg,rgba(239,35,50,0),#ff6b6b,rgba(239,35,50,0));box-shadow:0 0 40px 10px rgba(239,35,50,.5)", g);
+  const k = el("div", "abs kicker", "left:140px;top:330px;font-size:30px", g, `MISTAKE ${n} OF 5`);
+  const t1 = masked(g, sc.data.mistakes[n - 1], "abs big shadowtxt", "left:140px;top:380px;width:1100px;font-size:100px");
+  return t => {
+    g.style.transform = `scale(${1 + .05 * t / sc.dur})`;
+    const pf = P(t, .15, 1.0);
+    numF.style.clipPath = `inset(${(1 - pf) * 100}% 0 0 0)`; numO.style.opacity = P(t, 0, .5);
+    numF.style.filter = `drop-shadow(0 0 ${30 * pf}px rgba(239,35,50,.6))`;
+    const pfl = P(t, .1, .7); flare.style.transform = `scaleX(${pfl})`; flare.style.opacity = 1 - P(t, .7, .9);
+    k.style.opacity = P(t, .25, .4); k.style.transform = `translateX(${(1 - P(t, .25, .5)) * -40}px)`;
+    t1.set(t, .35, .07);
+  };
+};
+
+SC.sidebar = (root, sc) => {
+  const f = frame(root, "left:150px;top:90px;width:1620px;height:760px", "youtube.com/watch");
+  const player = el("div", "abs", "left:40px;top:80px;width:1060px;height:596px;border-radius:18px;overflow:hidden;background:#000", f);
+  img(player, A.zaynPhoto, "width:100%;height:100%;object-fit:cover;filter:blur(3px) brightness(.55)");
+  el("div", "abs", "left:490px;top:258px;width:0;height:0;border-left:70px solid rgba(255,255,255,.85);border-top:42px solid transparent;border-bottom:42px solid transparent", player);
+  el("div", "abs", "left:0;bottom:0;height:6px;width:38%;background:#ef2332", player);
+  [0, 1].forEach(i => el("div", "abs", `left:40px;top:${700 + i * 26}px;height:14px;width:${i ? 380 : 720}px;border-radius:7px;background:rgba(255,255,255,${i ? .1 : .18})`, f));
+  el("div", "abs kicker", "left:1140px;top:66px;font-size:16px;color:rgba(255,255,255,.55)", f, "SUGGESTED VIDEOS");
+  const slots = [];
+  for (let i = 0; i < 6; i++) { const y = 100 + i * 108;
+    const s = el("div", "abs", `left:1140px;top:${y}px;width:168px;height:94px;border-radius:8px;background:linear-gradient(135deg,rgba(255,255,255,.14),rgba(255,255,255,.05))`, f);
+    el("div", "abs", `left:1322px;top:${y + 8}px;height:12px;width:230px;border-radius:6px;background:rgba(255,255,255,.2)`, f);
+    el("div", "abs", `left:1322px;top:${y + 32}px;height:12px;width:150px;border-radius:6px;background:rgba(255,255,255,.1)`, f);
+    slots.push(s); }
+  const big = el("div", "abs", "left:0;top:0;width:640px;height:360px;border-radius:22px;overflow:hidden;box-shadow:0 40px 100px rgba(0,0,0,.7),0 0 0 2px rgba(255,255,255,.2);transform-origin:0 0", root);
+  img(big, A.thumbA, "width:100%;height:100%");
+  const lab = el("div", "abs pill", "background:#ef2332;color:#fff;box-shadow:0 0 30px rgba(239,35,50,.7)", root, "168 px");
+  const bracket = el("div", "abs", "height:3px;background:#ff6b6b;box-shadow:0 0 12px #ef2332", root);
+  const glow = el("div", "abs", "border:3px solid #ff6b6b;border-radius:12px;box-shadow:0 0 30px #ef2332", root);
+  const say = el("div", "abs kicker", "left:0;right:0;top:470px;text-align:center;font-size:30px", root, "WHAT YOU DESIGN");
+  const sx = 150 + 1140, sy = 90 + 100 + 108 * 2;   // slot 3 in page coordinates
+  const tFly = sc.cue(0, "in") + .1;
+  return t => {
+    const pw = P(t, 0, .7); f.style.opacity = pw; f.style.transform = `translateY(${(1 - pw) * 60}px)`;
+    const pf = eio((t - tFly) / 1.1);
+    const x = lerp(640, sx, pf), y = lerp(330, sy, pf), s = lerp(1, 168 / 640, pf);
+    big.style.transform = `translate(${x}px,${y}px) scale(${s})`; big.style.borderRadius = lerp(22, 30, pf) + "px";
+    big.style.opacity = P(t, .2, .5);
+    say.style.opacity = P(t, .3, .4) * (1 - P(t, tFly, .4)); say.style.top = "720px";
+    const pl = P(t, tFly + 1.0, .5);
+    bracket.style.left = sx + "px"; bracket.style.top = (sy - 16) + "px"; bracket.style.width = 168 * pl + "px";
+    lab.style.left = (sx - 10) + "px"; lab.style.top = (sy - 74) + "px"; lab.style.opacity = pl; lab.style.transform = `scale(${lerp(.6, 1, PB(t, tFly + 1, .5))})`;
+    const pulse = .5 + .5 * Math.sin(t * 5);
+    glow.style.left = (sx - 8) + "px"; glow.style.top = (sy - 8) + "px"; glow.style.width = "184px"; glow.style.height = "110px";
+    glow.style.opacity = pl * (.6 + .4 * pulse);
+    slots[2].style.opacity = pf > .95 ? 0 : 1;
+  };
+};
+
+SC.measure = (root, sc) => {
+  const f = frame(root, "left:100px;top:110px;width:1060px;height:700px", "thumbnail at 168 px, zoomed 6x");
+  const c = el("canvas", "abs", "left:26px;top:72px;width:1008px;height:564px;image-rendering:pixelated;border-radius:12px", f); c.width = 168; c.height = 94;
+  pix(c, A.thumbA);
+  const ruler = el("div", "abs", "left:60px;top:250px;width:6px;background:#22c55e;box-shadow:0 0 14px #22c55e", f);
+  const p = el("div", "abs glass", "left:1200px;top:150px;width:620px;height:620px;padding:40px", root);
+  el("div", "kicker", "margin-bottom:34px", p, "MEASURED BY PRO-THUMBS");
+  const rowA = el("div", "", "margin-bottom:44px", p);
+  rowA.innerHTML = `<div style="display:flex;justify-content:space-between;font-size:30px;font-weight:600;color:rgba(255,255,255,.8)"><span>Letter height</span><span>${TICK}</span></div>
+    <div class="big" style="font-size:96px;margin-top:6px"><span class="v1">0</span><span style="font-size:44px;color:rgba(255,255,255,.6)"> px</span></div>
+    <div style="height:12px;border-radius:6px;background:rgba(255,255,255,.1);margin-top:12px"><div class="b1" style="height:12px;border-radius:6px;background:#22c55e;width:0"></div></div>`;
+  const rowB = el("div", "", "", p);
+  rowB.innerHTML = `<div style="display:flex;justify-content:space-between;font-size:30px;font-weight:600;color:rgba(255,255,255,.8)"><span>Contrast &nbsp;<span style="color:rgba(255,255,255,.45);font-size:24px">target 7 : 1</span></span><span>${CROSS}</span></div>
+    <div class="big" style="font-size:96px;margin-top:6px;color:#ff6b6b"><span class="v2">0</span><span style="font-size:44px;color:rgba(255,120,120,.7)"> : 1</span></div>
+    <div style="height:12px;border-radius:6px;background:rgba(255,255,255,.1);margin-top:12px;position:relative"><div class="b2" style="height:12px;border-radius:6px;background:#ef2332;width:0"></div>
+    <div style="position:absolute;left:100%;top:-8px;width:3px;height:28px;background:#fff;margin-left:-3px"></div></div>`;
+  const v1 = p.querySelector(".v1"), b1 = p.querySelector(".b1"), v2 = p.querySelector(".v2"), b2 = p.querySelector(".b2");
+  const stamp = el("div", "abs big", "left:330px;top:350px;font-size:170px;color:#fff;border:10px solid #fff;border-radius:30px;padding:0 50px;transform:rotate(-12deg);background:#d4141f;box-shadow:0 30px 90px rgba(0,0,0,.85),0 0 80px rgba(239,35,50,.7)", root, "FAIL");
+  const tA = sc.cue(0, "big") , tB = sc.cue(0, "red"), tS = sc.L(1) + .25;
+  return t => {
+    const pw = P(t, 0, .7); f.style.opacity = pw; f.style.transform = `perspective(1600px) rotateY(${(1 - pw) * 18 + 4}deg)`;
+    p.style.opacity = P(t, .3, .6); p.style.transform = `translateX(${(1 - P(t, .3, .7)) * 80}px)`;
+    const a = P(t, tA, .9); v1.textContent = (13.6 * a).toFixed(1); b1.style.width = Math.min(100, 13.6 / 12 * 80 * a) + "%";
+    ruler.style.height = 200 * a + "px"; ruler.style.opacity = a;
+    const b = P(t, tB, 1.1); v2.textContent = (2.9 * b).toFixed(1); b2.style.width = (2.9 / 7 * 100 * b) + "%";
+    const ps = clamp((t - tS) / .28);
+    stamp.style.opacity = ps; stamp.style.transform = `rotate(-12deg) scale(${lerp(2.4, 1, eo(ps))})`;
+    const shake = t > tS && t < tS + .35 ? Math.sin(t * 90) * 10 * (1 - (t - tS) / .35) : 0;
+    root.style.transform = `translate(${shake}px,${shake * .5}px)`;
+  };
+};
+
+SC.carousel = (root, sc) => {
+  const stg = el("div", "abs", "left:0;top:0;width:1920px;height:1080px;perspective:1800px", root);
+  const W3 = el("div", "abs", "left:0;top:0;width:1920px;height:1080px;transform-style:preserve-3d", stg);
+  const S = [["A", A.thumbA, 81], ["B", A.thumbB, 87], ["C", A.thumbC, 90]];
+  const cards = S.map(([n, src, sc_], i) => { const c = el("div", "abs", "left:0;top:0;width:560px;transform-style:preserve-3d", W3);
+    const im = el("div", "", "width:560px;height:315px;border-radius:20px;overflow:hidden;box-shadow:0 40px 90px rgba(0,0,0,.7),0 0 0 2px rgba(255,255,255,.18)", c);
+    img(im, src, "width:100%;height:100%");
+    const lab = el("div", "", "display:flex;align-items:center;gap:24px;margin-top:26px;justify-content:center", c);
+    el("div", "big", "font-size:60px;color:rgba(255,255,255,.7)", lab, n);
+    const r = ring(lab, 120, "position:relative"); return { c, r, im, val: sc_ }; });
+  const win = el("div", "abs pill", "background:#22c55e;color:#04140a;font-size:30px;box-shadow:0 0 40px rgba(34,197,94,.7)", root, "WINNER &nbsp;90/100");
+  const strip = el("div", "abs glass", "left:640px;top:820px;width:640px;height:0;opacity:0", root);
+  const tW = sc.cue(0, "winner"), t120 = sc.cue(0, "120");
+  const tinyBox = el("div", "abs", "left:700px;top:836px;display:flex;align-items:center;gap:26px", root);
+  const tiny = el("div", "", "width:120px;height:68px;border-radius:6px;overflow:hidden;box-shadow:0 0 0 2px #22c55e", tinyBox); img(tiny, A.thumbC, "width:100%;height:100%");
+  el("div", "", "font-size:30px;font-weight:700", tinyBox, '120 px wide <span style="color:#22c55e">· still reads</span>');
+  return t => {
+    const w = eio((t - tW) / 1.0);
+    const base = [[-600, 0, -300, 28], [0, 0, -380, 0], [600, 0, -300, -28]];
+    const fin = [[-800, 60, -520, 38], [800, 60, -520, -38], [0, -10, 160, 0]];
+    cards.forEach((k, i) => { const p = PB(t, .2 + i * .25, .8);
+      const b = base[i], e = fin[i];
+      const x = lerp(b[0], e[0], w), y = lerp(b[1], e[1], w) + (1 - p) * 300, z = lerp(b[2], e[2], w), ry = lerp(b[3], e[3], w);
+      k.c.style.transform = `translate3d(${680 + x}px,${200 + y}px,${z}px) rotateY(${ry}deg)`;
+      k.c.style.opacity = clamp((t - .2 - i * .25) * 3) * (i < 2 ? 1 - w * .55 : 1);
+      k.r(k.val * P(t, .9 + i * .25, 1.2));
+      k.im.style.boxShadow = i === 2 && w > .5 ? `0 40px 90px rgba(0,0,0,.7),0 0 0 4px #22c55e,0 0 ${60 * w}px rgba(34,197,94,.6)` : "0 40px 90px rgba(0,0,0,.7),0 0 0 2px rgba(255,255,255,.18)"; });
+    win.style.left = "840px"; win.style.top = "70px"; win.style.opacity = w; win.style.transform = `scale(${lerp(.7, 1, PB(t, tW + .3, .6))})`;
+    const ps = P(t, t120 - .2, .6); tinyBox.style.opacity = ps; tinyBox.style.transform = `translateY(${(1 - ps) * 30}px)`;
+    tinyBox.style.top = "800px"; tinyBox.style.left = "1250px";
+  };
+};
+
+SC.rule = (root, sc) => {
+  const card = el("div", "abs glass", "left:360px;top:150px;width:1200px;padding:60px 70px;border-radius:36px;border-color:rgba(255,120,120,.35)", root);
+  el("div", "kicker", "margin-bottom:18px", card, `THE RULE &nbsp;·&nbsp; MISTAKE ${sc.pill}`);
+  const shot = el("div", "abs pill", "right:50px;top:46px;background:#fff;color:#0a0a0c;font-size:22px", card,
+    '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0a0a0c" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>SCREENSHOT THIS');
+  const items = sc.data.items.map(it => { const r = el("div", "", "display:flex;align-items:center;gap:30px;margin-top:34px", card);
+    el("div", "", "transform:scale(1.5);transform-origin:left center;width:52px", r, TICK); el("div", "big", "font-size:76px", r, it); return r; });
+  const flash = el("div", "abs", "left:0;top:0;width:1920px;height:1080px;background:#fff;pointer-events:none", root);
+  const n = items.length, span = Math.max(.6, (sc.E(0) - .6) / n);
+  return t => {
+    const p = P(t, 0, .6); card.style.opacity = p; card.style.transform = `perspective(1600px) rotateX(${(1 - p) * 14}deg) translateY(${(1 - p) * 60}px)`;
+    items.forEach((r, i) => { const q = P(t, .45 + i * span, .55); r.style.opacity = q; r.style.transform = `translateX(${(1 - q) * -60}px)`; });
+    const tf = sc.E(0) + .15; const pf = clamp(1 - Math.abs(t - tf) / .12); flash.style.opacity = pf * .35;
+    shot.style.transform = `scale(${t > tf ? 1 + .15 * clamp(1 - (t - tf) / .3) : 1})`; shot.style.opacity = P(t, .5, .4);
+  };
+};
+
+SC.pairing = (root, sc) => {
+  const card = el("div", "abs glass", "left:130px;top:150px;width:1660px;height:520px;padding:40px", root);
+  const th = el("div", "abs", "left:40px;top:40px;width:782px;height:440px;border-radius:18px;overflow:hidden;box-shadow:0 30px 70px rgba(0,0,0,.6)", card);
+  const im1 = img(th, A.thumbOld, "position:absolute;width:100%;height:100%"), im2 = img(th, A.thumbC, "position:absolute;width:100%;height:100%;opacity:0");
+  const words = "I Built 16 Claude Code Skills That Run My YouTube Channel".split(" ");
+  const rep = new Set(["16", "Skills", "Run", "Channel"]);
+  const tt = el("div", "abs", "left:870px;top:60px;width:740px;font-size:58px;font-weight:700;line-height:1.18", card);
+  const ws = words.map(w => el("span", "", "display:inline-block;margin-right:.24em;border-radius:10px;padding:0 .06em", tt, w));
+  const ch = el("div", "abs", "left:870px;top:330px;display:flex;align-items:center;gap:16px;font-size:26px;color:rgba(255,255,255,.6)", card,
+    '<div style="width:46px;height:46px;border-radius:23px;background:linear-gradient(135deg,#ef2332,#7a0b14)"></div>Your channel &nbsp;·&nbsp; just now');
+  const chips = el("div", "abs", "left:130px;top:710px;display:flex;align-items:center;gap:16px;font-size:28px;font-weight:700", root);
+  const r = ring(root, 190, "left:1600px;top:690px");
+  const tR = sc.cue(0, "title"), tS = sc.L(1) + .2, tN = sc.cue(1, "100");
+  return t => {
+    const p = P(t, 0, .7); card.style.opacity = p; card.style.transform = `perspective(1800px) rotateX(${(1 - p) * 12}deg) translateY(${(1 - p) * 50}px)`;
+    const hi = P(t, tR, .5), sw = P(t, tS, .7);
+    ws.forEach(s => { const on = rep.has(s.textContent);
+      s.style.background = on ? `rgba(239,35,50,${.85 * hi * (1 - sw)})` : "transparent";
+      s.style.boxShadow = on && hi * (1 - sw) > .3 ? "0 0 26px rgba(239,35,50,.6)" : "none"; });
+    im2.style.opacity = sw; im1.style.opacity = 1 - sw;
+    if (t < tS) chips.innerHTML = hi > 0 ? `<span style="color:rgba(255,255,255,.55)">REPEATED IN BOTH:</span>` + [...rep].map(w => `<span class="pill" style="background:rgba(239,35,50,.2);border:1px solid rgba(239,35,50,.7);color:#ff8a8a">${w.toUpperCase()}</span>`).join("") : "";
+    else chips.innerHTML = `<span style="color:rgba(255,255,255,.55)">REPEATED IN BOTH:</span><span class="pill" style="background:rgba(34,197,94,.18);border:1px solid rgba(34,197,94,.7);color:#7dffab">NONE</span>`;
+    chips.style.opacity = hi;
+    const v = t < tS ? 84 * P(t, tR + .3, 1.2) : lerp(84, 100, P(t, tN - .3, .9)); r(v, v < 99.5 ? "#f5a524" : "#22c55e");
+  };
+};
+
+SC.radar = (root, sc) => {
+  const hk = sc.data.hooks, cx = 520, cy = 470, R0 = 290, N = 6;
+  const ang = i => -Math.PI / 2 + i * 2 * Math.PI / N, pt = (i, v) => [cx + Math.cos(ang(i)) * R0 * v / 100, cy + Math.sin(ang(i)) * R0 * v / 100];
+  let svg = `<svg class="abs" style="left:0;top:0" width="1920" height="1080"><defs><radialGradient id="rg"><stop offset="0" stop-color="rgba(239,35,50,.12)"/><stop offset="1" stop-color="rgba(239,35,50,0)"/></radialGradient></defs>
+    <circle cx="${cx}" cy="${cy}" r="${R0 + 60}" fill="url(#rg)"/>`;
+  [25, 50, 75, 100].forEach(v => svg += `<polygon points="${[...Array(N).keys()].map(i => pt(i, v).join(",")).join(" ")}" fill="none" stroke="rgba(255,255,255,${v === 100 ? .22 : .08})" stroke-width="2"/>`);
+  for (let i = 0; i < N; i++) svg += `<line class="ax" x1="${cx}" y1="${cy}" x2="${pt(i, 100)[0]}" y2="${pt(i, 100)[1]}" stroke="rgba(255,255,255,.12)" stroke-width="2"/>`;
+  svg += `<polygon id="poly" points="" stroke-width="4"/></svg>`;
+  root.insertAdjacentHTML("beforeend", svg);
+  const poly = root.querySelector("#poly"), axes = [...root.querySelectorAll(".ax")];
+  const labs = hk.axes.map((a, i) => { const [x, y] = pt(i, 128); return el("div", "abs", `left:${x - 130}px;top:${y - 18}px;width:260px;text-align:center;font-size:22px;font-weight:700;letter-spacing:.12em;color:rgba(255,255,255,.45)`, root, a); });
+  const card = el("div", "abs glass", "left:1000px;top:170px;width:820px;height:560px;padding:50px", root);
+  const kick = el("div", "kicker", "", card, "SIX SIGNALS");
+  const quote = el("div", "", "margin-top:28px;font-size:44px;font-weight:600;line-height:1.25;min-height:220px", card);
+  const sc_ = el("div", "abs big", "left:50px;bottom:40px;font-size:150px", card);
+  const verdict = el("div", "abs pill", "right:50px;bottom:70px;font-size:28px", card);
+  const keys = ["concrete", "stakes", "open", "talking", "pace", "no"];
+  const tAx = keys.map(k => sc.cue(0, k)), t1 = sc.L(1), t2 = sc.L(2), t3 = sc.cue(2, "82") - .2, t3b = sc.cue(2, "the");
+  const states = [[0, 0, 0, 0, 0, 0], hk.list[0].v, hk.list[1].v, hk.list[2].v];
+  return t => {
+    const pr = P(t, 0, .7); root.style.opacity = pr;
+    axes.forEach((a, i) => { const on = t >= tAx[i]; a.setAttribute("stroke", on ? "rgba(255,120,120,.6)" : "rgba(255,255,255,.12)");
+      labs[i].style.color = on ? (t < t1 && t < tAx[i] + 1.2 ? "#ff8080" : "rgba(255,255,255,.75)") : "rgba(255,255,255,.35)";
+      labs[i].style.transform = `scale(${on && t < tAx[i] + .4 ? 1 + .15 * (1 - (t - tAx[i]) / .4) : 1})`; });
+    let si = t < t1 ? 0 : t < t2 + .3 ? 1 : t < t3 ? 2 : 3;
+    const tStart = [0, t1, t2 + .3, t3][si], pv = eio((t - tStart) / .8);
+    const from = states[Math.max(0, si - 1)], to = states[si];
+    const vals = to.map((v, i) => lerp(from[i], v, si === 0 ? 1 : pv));
+    const score = si ? hk.list[si - 1].score : 0, col = score >= 72 ? "34,197,94" : score >= 55 ? "245,165,36" : "239,35,50";
+    poly.setAttribute("points", vals.map((v, i) => pt(i, Math.max(v, 2)).join(",")).join(" "));
+    poly.setAttribute("fill", `rgba(${col},.28)`); poly.setAttribute("stroke", `rgb(${col})`); poly.style.filter = `drop-shadow(0 0 18px rgb(${col}))`;
+    if (si === 0) { kick.textContent = "SIX SIGNALS, SCORED"; quote.innerHTML = hk.axes.map((a, i) => `<span style="opacity:${t >= tAx[i] ? 1 : .25}">${a.toLowerCase()}</span>`).join(" &nbsp;·&nbsp; ");
+      sc_.textContent = ""; verdict.style.opacity = 0; }
+    else { const h = hk.list[si - 1]; kick.textContent = ["", "THE CLASSIC OPENER", "MY FIRST DRAFT", "THIS VIDEO'S OPENING"][si];
+      quote.textContent = "“" + h.text + "”"; quote.style.fontSize = h.text.length > 90 ? "38px" : "44px";
+      const cnt = clamp((t - tStart) / .9); sc_.textContent = Math.round(lerp(si > 1 ? hk.list[si - 2].score : 0, h.score, eo(cnt)));
+      sc_.style.color = `rgb(${col})`; verdict.style.opacity = 1;
+      verdict.textContent = h.score >= 72 ? "STRONG" : h.score >= 55 ? "WORKABLE" : "WEAK";
+      verdict.style.background = `rgba(${col},.18)`; verdict.style.border = `1px solid rgba(${col},.7)`; verdict.style.color = `rgb(${col})`; }
+  };
+};
+
+SC.gap = (root, sc) => {
+  const d = sc.data.search;
+  const wrap = el("div", "abs", "left:90px;top:150px;width:1000px;height:600px;perspective:1800px", root);
+  const f = frame(wrap, "left:0;top:0;width:1000px;height:600px;transform-origin:100% 50%", "youtube.com/results");
+  const vp = el("div", "abs", "left:0;top:46px;width:1000px;height:554px;overflow:hidden", f);
+  const s = 1000 / 2256;
+  const v = video(vp, A.search, `position:absolute;left:0;top:${-105 * s}px;width:${2256 * s}px;height:${1504 * s}px`);
+  const panel = el("div", "abs glass", "left:1130px;top:110px;width:700px;height:690px;padding:34px 36px", root);
+  el("div", "mono", "font-size:22px;color:rgba(255,255,255,.65)", panel, "⌕ &nbsp;" + d.query);
+  const tot = el("div", "big", "font-size:92px;margin-top:16px", panel);
+  el("div", "", "font-size:24px;color:rgba(255,255,255,.55);margin-top:-4px", panel, "views across the top 6 results");
+  const rows = d.rows.map(r => { const row = el("div", "", "position:relative;margin-top:22px;height:58px", panel);
+    el("div", "", "font-size:21px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:440px;color:rgba(255,255,255,.85)", row, r.title);
+    const bar = el("div", "", "height:10px;border-radius:5px;margin-top:10px;background:linear-gradient(90deg,#ef2332,#ff7a7a);width:0", row);
+    el("div", "abs mono", "left:452px;top:0;font-size:21px;color:rgba(255,255,255,.7)", row, r.label);
+    const red = r.tag === "PAID TOOLS" || r.tag === "HYPE";
+    const tag = el("div", "abs pill", `right:0;top:4px;font-size:17px;padding:6px 12px;${red ? "background:rgba(239,35,50,.25);border:1px solid #ef2332;color:#ff9090" : "background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);color:rgba(255,255,255,.6)"}`, row, r.tag);
+    return { bar, tag, r, red }; });
+  const veil = el("div", "abs", "left:0;top:0;width:1920px;height:1080px;background:rgba(5,5,7,.78);backdrop-filter:blur(8px)", root);
+  const gapT = el("div", "abs big", "left:0;right:0;top:300px;text-align:center;font-size:190px", root, '<span class="gradg">THE GAP</span>');
+  const gapS = el("div", "abs", "left:0;right:0;top:530px;text-align:center;font-size:56px;font-weight:700", root, "Real work. Free tools. <span style='color:#22c55e'>Nobody doing it.</span>");
+  const t1 = sc.L(1), t2 = sc.L(2);
+  return async t => {
+    const p = P(t, 0, .8); f.style.opacity = p; f.style.transform = `rotateY(${lerp(30, 14, p)}deg)`;
+    panel.style.opacity = P(t, .4, .6); panel.style.transform = `translateX(${(1 - P(t, .4, .8)) * 80}px)`;
+    tot.textContent = fmt(2626000 * P(t, .8, 2.2));
+    rows.forEach((k, i) => { k.bar.style.width = (k.r.views / 1100000 * 420 * P(t, .9 + i * .12, 1)) + "px";
+      const ts = t1 + .3 + i * .45, q = clamp((t - ts) / .22); k.tag.style.opacity = q; k.tag.style.transform = `scale(${lerp(1.8, 1, eo(q))}) rotate(${k.red ? -4 : 0}deg)`; });
+    const g = P(t, t2 - .1, .6); veil.style.opacity = g; gapT.style.opacity = g; gapT.style.transform = `scale(${lerp(1.3, 1, g)})`;
+    gapS.style.opacity = P(t, t2 + .3, .5);
+    await vseek(v, 6 + t * .85);
+  };
+};
+
+SC.wave = (root, sc) => {
+  const w = A.wave, X0 = 140, X1 = 1780, Y = 500, total = w.dur;
+  const head = el("div", "abs", "left:140px;top:70px;display:flex;align-items:baseline;gap:30px", root);
+  el("div", "kicker", "", head, "RAW TAKE");
+  const timer = el("div", "big", "font-size:110px", head);
+  const minus = el("div", "big", "font-size:110px;color:#22c55e", head, "−39%");
+  const cutsT = w.cuts.reduce((a, c) => a + c[1] - c[0], 0);
+  const keptBefore = (t, c) => { let cut = 0; w.cuts.forEach(([a, b]) => { cut += clamp(t, a, b) - a; }); return t - cut * c; };
+  const xOf = (t, c) => X0 + keptBefore(t, c) / (total - cutsT * c) * (X1 - X0);
+  const bars = w.peaks.map((pk, i) => { const tt = (i + .5) / w.peaks.length * total; const inCut = w.cuts.find(([a, b]) => tt >= a && tt <= b);
+    return { t: tt, el: el("div", "abs", `width:4px;border-radius:2px;height:${10 + pk * 260}px;top:${Y - (10 + pk * 260) / 2}px;background:${inCut ? (inCut[2] === "pause" ? "#f5a524" : "#ef2332") : "rgba(255,255,255,.85)"}`, root), cut: inCut }; });
+  const regs = w.cuts.map(([a, b, k]) => { const r = el("div", "abs", `top:${Y - 170}px;height:340px;border-radius:16px;border:2px dashed ${k === "pause" ? "#f5a524" : "#ef2332"};background:${k === "pause" ? "rgba(245,165,36,.1)" : "rgba(239,35,50,.12)"}`, root);
+    const lab = el("div", "abs pill", `top:${Y - 226}px;font-size:22px;${k === "pause" ? "background:rgba(245,165,36,.2);color:#ffc970;border:1px solid #f5a524" : "background:rgba(239,35,50,.22);color:#ff9090;border:1px solid #ef2332"}`, root,
+      k === "pause" ? `${(b - a).toFixed(1)} s PAUSE` : "ABANDONED TAKE + UM"); return { a, b, r, lab, k }; });
+  const words = w.words.map((x, i) => ({ x, e: el("div", "abs mono", `top:${Y + 200 + (i % 3) * 34}px;font-size:19px;color:rgba(255,255,255,.75);white-space:nowrap`, root, x.w) }));
+  const head2 = el("div", "abs pill glass", "left:140px;font-size:22px", root, "TRANSCRIBED LOCALLY · faster-whisper");
+  const play = el("div", "abs", `top:${Y - 210}px;width:3px;height:420px;background:#fff;box-shadow:0 0 16px #fff`, root);
+  const tPause = sc.cue(0, "silence"), tRet = sc.cue(0, "retakes"), t1 = sc.L(1), t2 = sc.L(2);
+  return t => {
+    root.style.opacity = P(t, 0, .6);
+    const c = eio((t - t2 - .2) / 1.4);
+    bars.forEach(b => { const x = xOf(b.t, c); b.el.style.left = x + "px"; b.el.style.opacity = b.cut ? 1 - c : 1; b.el.style.transform = `scaleY(${b.cut ? 1 - c : 1})`; });
+    regs.forEach(r => { const on = r.k === "pause" ? P(t, tPause, .4) : P(t, tRet, .4);
+      const x0 = xOf(r.a, c), x1 = xOf(r.b, c); r.r.style.left = (x0 - 4) + "px"; r.r.style.width = Math.max(0, x1 - x0 + 8) + "px";
+      r.r.style.opacity = on * (1 - c); r.lab.style.left = x0 + "px"; r.lab.style.opacity = on * (1 - c); });
+    const pt = clamp((t - .4) / Math.max(1, t1 - .6)) * total; play.style.left = xOf(pt, 0) + "px"; play.style.opacity = t < t1 ? 1 : 0;
+    words.forEach((k, i) => { const show = t >= t1 + i * ((t2 - t1 - .3) / words.length); k.e.style.opacity = show ? (1 - c) * .9 + c * .9 : 0;
+      k.e.style.left = xOf(k.x.s, c) + "px"; const inCut = w.cuts.find(([a, b]) => k.x.s >= a && k.x.s < b);
+      if (inCut) { k.e.style.color = inCut[2] === "pause" ? "#ffc970" : "#ff8a8a"; k.e.style.textDecoration = c > 0 ? "line-through" : "none"; k.e.style.opacity = show ? (1 - c) : 0; } });
+    head2.style.top = (Y + 312) + "px"; head2.style.opacity = P(t, t1, .4) * (1 - c);
+    timer.textContent = lerp(total, total - cutsT, c).toFixed(1) + " s"; minus.style.opacity = P(t, t2 + 1.2, .5);
+    minus.style.transform = `scale(${lerp(1.5, 1, PB(t, t2 + 1.2, .5))})`;
+  };
+};
+
+SC.orbit = (root, sc) => {
+  const stg = el("div", "abs", "left:0;top:0;width:1920px;height:1080px;perspective:2200px", root);
+  const ringE = el("div", "abs", "left:960px;top:560px;width:0;height:0;transform-style:preserve-3d", stg);
+  const used = new Set(sc.data.used);
+  const tiles = sc.data.skills.map(([n, g], i) => { const e = el("div", "abs glass", `left:-160px;top:-80px;width:320px;height:160px;padding:26px 30px;border-radius:24px;backface-visibility:hidden;${used.has(n) ? "border-color:rgba(255,100,100,.8);box-shadow:0 0 50px rgba(239,35,50,.45),inset 0 1px 0 rgba(255,255,255,.2)" : ""}`, ringE);
+    el("div", "big", "font-size:40px", e, "/" + n); el("div", "kicker", `font-size:18px;margin-top:14px;color:${used.has(n) ? "#ff8a8a" : "rgba(255,255,255,.5)"}`, e, g + (used.has(n) ? " · shown" : "")); return e; });
+  const center = el("div", "abs big", "left:0;right:0;top:70px;text-align:center;font-size:190px", root, '<span class="grad">16</span>');
+  const sub = el("div", "abs kicker", "left:0;right:0;top:270px;text-align:center;font-size:32px", root, "CLAUDE CODE SKILLS");
+  const groups = el("div", "abs", "left:0;right:0;top:330px;display:flex;justify-content:center;gap:24px", root);
+  const gs = ["FIND", "MAKE", "PACKAGE", "GROW"].map(g => el("div", "pill glass", "font-size:26px", groups, g));
+  return t => {
+    const a = t * 14 - 30, R_ = 700;
+    tiles.forEach((e, i) => { const th = (i * 360 / 16 + a) * Math.PI / 180, face = Math.cos(th);
+      e.style.transform = `rotateX(-8deg) rotateY(${i * 22.5 + a}deg) translateZ(${R_}px)`;
+      e.style.opacity = clamp((t - i * .05) * 3) * lerp(.18, 1, (face + 1) / 2); });
+    const pc = P(t, .3, .8); center.style.opacity = pc; center.style.transform = `scale(${lerp(.6, 1, pc)})`; sub.style.opacity = P(t, .6, .6);
+    gs.forEach((g, i) => { const q = P(t, sc.L(1) + .3 + i * .5, .5); g.style.opacity = q; g.style.transform = `translateY(${(1 - q) * 30}px)`; });
+  };
+};
+
+SC.render = (root, sc) => {
+  const wrap = el("div", "abs", "left:300px;top:110px;width:1320px;height:742px;perspective:2000px", root);
+  const f = frame(wrap, "left:0;top:0;width:1320px;height:742px", "pro-video · render.py");
+  const vp = el("div", "abs", "left:0;top:46px;width:1320px;height:696px;overflow:hidden;background:#0c0c0c", f);
+  const s = 1320 / 1640;
+  const v = video(vp, A.render, `position:absolute;left:0;top:${-40 * s}px;width:${2256 * s}px;height:${1504 * s}px`);
+  const tag = el("div", "abs pill", "left:300px;top:50px;background:#ef2332;box-shadow:0 0 30px rgba(239,35,50,.6)", root, "● &nbsp;REAL RUN");
+  const veil = el("div", "abs", "left:0;top:0;width:1920px;height:1080px;background:rgba(5,5,7,.72);backdrop-filter:blur(6px)", root);
+  const big = el("div", "abs big", "left:0;right:0;top:320px;text-align:center;font-size:150px", root, '<span class="grad">THIS VIDEO</span>');
+  const sub = el("div", "abs", "left:0;right:0;top:500px;text-align:center;font-size:56px;font-weight:700", root, "was made the same way.");
+  const tV = sc.cue(0, "this");
+  return async t => {
+    const p = P(t, 0, .8); f.style.opacity = p; f.style.transform = `rotateX(${lerp(20, 6, p)}deg) rotateY(${-6 + 4 * t / sc.dur}deg)`;
+    tag.style.opacity = P(t, .5, .4);
+    const g = P(t, tV - .1, .6); veil.style.opacity = g; big.style.opacity = g; big.style.transform = `scale(${lerp(1.25, 1, g)})`; sub.style.opacity = P(t, tV + .4, .5);
+    await vseek(v, .5 + t * 6);
+  };
+};
+
+SC.notes = (root, sc) => {
+  const c = [["CLAUDE CODE", "Needs a paid Claude plan.", "Every tool the skills use is free."], ["THE SCORES", "Compare your options.", "They don't predict views."]];
+  const cards = c.map((x, i) => { const e = el("div", "abs glass", `left:${170 + i * 820}px;top:210px;width:760px;height:460px;padding:50px;border-color:rgba(245,165,36,.45)`, root);
+    el("div", "kicker", "color:#f5a524", e, "HONEST NOTE " + (i + 1)); el("div", "big", "font-size:62px;margin-top:30px", e, x[0]);
+    el("div", "", "font-size:42px;font-weight:600;margin-top:36px;color:rgba(255,255,255,.88)", e, x[1]);
+    el("div", "", "font-size:42px;font-weight:600;margin-top:14px;color:#f5a524", e, x[2]); return e; });
+  return t => cards.forEach((e, i) => { const q = PB(t, i ? sc.L(1) - .2 : .1, .7); e.style.opacity = clamp((t - (i ? sc.L(1) - .2 : .1)) * 3);
+    e.style.transform = `perspective(1600px) rotateY(${(1 - q) * (i ? -25 : 25)}deg) translateY(${(1 - q) * 80}px)`; });
+};
+
+SC.cta = (root, sc) => {
+  el("div", "abs kicker", "left:0;right:0;top:130px;text-align:center", root, "WANT ALL 16?");
+  const big = el("div", "abs big", "left:0;right:0;top:180px;text-align:center;font-size:170px", root, 'COMMENT <span class="grad">“SKILLS”</span>');
+  const box = el("div", "abs glass", "left:460px;top:450px;width:1000px;padding:34px 40px;display:flex;align-items:center;gap:28px", root);
+  el("div", "", "width:70px;height:70px;border-radius:35px;background:linear-gradient(135deg,#6b7280,#374151);flex:none", box);
+  const inp = el("div", "", "flex:1;font-size:44px;font-weight:600;border-bottom:2px solid rgba(255,255,255,.4);padding-bottom:10px", box);
+  const btn = el("div", "pill", "background:#3ea6ff;color:#06121f;font-size:26px", box, "Comment");
+  const reply = el("div", "abs glass", "left:620px;top:640px;width:840px;padding:26px 34px;display:flex;align-items:center;gap:22px;border-color:rgba(239,35,50,.5)", root,
+    '<div style="width:56px;height:56px;border-radius:28px;background:linear-gradient(135deg,#ef2332,#7a0b14);flex:none"></div><div style="font-size:34px;font-weight:600">Here’s the link to all 16 skills.</div>');
+  const credit = el("div", "abs", "left:0;right:0;top:840px;text-align:center;font-size:30px;color:rgba(255,255,255,.6)", root, "Written from scratch · inspired by an open-source pack (linked in the description)");
+  const word = "SKILLS";
+  return t => {
+    const p = P(t, 0, .7); big.style.opacity = p; big.style.transform = `scale(${lerp(1.2, 1, p)})`;
+    box.style.opacity = P(t, .5, .5); const n = Math.floor(clamp((t - 1.1) / .8) * word.length);
+    inp.innerHTML = n ? word.slice(0, n) + (t < 2.6 && Math.floor(t * 3) % 2 ? "|" : "") : '<span style="color:rgba(255,255,255,.4)">Add a comment…</span>';
+    btn.style.transform = `scale(${t > 2.2 && t < 2.45 ? .9 : 1})`;
+    const r = PB(t, 2.6, .6); reply.style.opacity = clamp((t - 2.6) * 3); reply.style.transform = `translateY(${(1 - r) * 40}px)`;
+    credit.style.opacity = P(t, sc.L(1), .6);
+  };
+};
+
+SC.outro = (root, sc) => {
+  const ph = el("div", "abs", "left:0;top:0;width:1920px;height:1080px;overflow:hidden", root);
+  const im = img(ph, A.zaynPhoto, "position:absolute;left:0;top:0;width:1920px;height:1080px;object-fit:cover;transform-origin:50% 40%");
+  const lt = el("div", "abs glass", "left:80px;top:640px;width:620px;height:150px;border-radius:22px;padding:22px 32px;overflow:hidden", root);
+  el("div", "abs", "left:0;top:0;bottom:0;width:10px;background:#ef2332;box-shadow:0 0 24px #ef2332", lt);
+  el("div", "big", "font-size:62px", lt, "ZAYN"); el("div", "", "font-size:26px;font-weight:600;color:rgba(255,255,255,.75);margin-top:6px", lt, "AI host &nbsp;·&nbsp; real work, no hype");
+  const nx = el("div", "abs glass", "left:1260px;top:200px;width:560px;padding:36px", root);
+  el("div", "kicker", "", nx, "NEXT VIDEO"); el("div", "big", "font-size:62px;margin-top:16px", nx, "A real AI agent in n8n");
+  const sub = el("div", "abs pill", "left:1260px;top:470px;font-size:30px;padding:18px 34px", root);
+  return t => {
+    im.style.transform = `scale(${1.08 + .06 * t / sc.dur})`;
+    const p = P(t, .3, .7); lt.style.opacity = p; lt.style.transform = `translateX(${(1 - p) * -80}px)`;
+    const q = P(t, sc.cue(0, "next"), .6); nx.style.opacity = q; nx.style.transform = `translateX(${(1 - q) * 80}px)`;
+    const ts = sc.cue(0, "see"), on = t > ts + .3; sub.style.opacity = P(t, ts - .4, .5);
+    sub.style.background = on ? "rgba(255,255,255,.14)" : "#ef2332"; sub.style.color = "#fff"; sub.textContent = on ? "✓ SUBSCRIBED" : "SUBSCRIBE";
+    sub.style.transform = `scale(${t > ts && t < ts + .3 ? .9 : 1})`;
+  };
+};
+
+/* ------------------------------------------------------------------ the clock */
+const stage = document.getElementById("stage");
+let cur = -1, upd = null;
+async function seek(t) {
+  let i = TL.scenes.findIndex(s => t >= s.start && t < s.start + s.dur); if (i < 0) i = TL.scenes.length - 1;
+  const sc = TL.scenes[i];
+  if (i !== cur) {
+    stage.innerHTML = ""; READY = [];
+    const root = el("div", "abs", "left:0;top:0;width:1920px;height:1080px", stage);
+    upd = SC[sc.kind](root, S_(sc)); cur = i;
+    await Promise.all(READY);
+  }
+  const lt = t - sc.start;
+  drawBG(t); drawHUD(t, sc); drawCaptions(t);
+  const pi = sc.kind === "zayn" || i === 0 ? 1 : P(lt, 0, .45), po = clamp((sc.dur - lt) / .3);
+  stage.style.opacity = Math.min(pi, po);
+  stage.style.transform = `scale(${lerp(1.06, 1, pi) - (1 - po) * .03})`;
+  stage.style.filter = pi < 1 ? `blur(${(1 - pi) * 14}px)` : "none";
+  await upd(lt);
+  return true;
+}
+window.seek = seek;
+window.ready = document.fonts.ready.then(() => true);
+</script></body></html>

@@ -1,0 +1,43 @@
+{
+  "title": "pro-video demo",
+  "voice": "en-US-AndrewNeural",
+  "rate": "+2%",
+  "host": "robot",
+  "music_volume": 0.11,
+  "description": "A 60-second demo of every scene type in pro-video.\n\n{chapters}\n\n#claudecode",
+  "chapters": [
+    {"title": "Intro", "pill": null, "lines": [
+      {"say": "This whole video came from one JSON file.", "hold": 0.3,
+       "visual": {"type": "kinetic", "lines": [["ONE JSON FILE.", "white"], ["ONE FULL VIDEO.", "hot"]], "size": 120, "top": 280,
+                  "sub": "Voice · Motion graphics · Captions · Music"}},
+      {"say": "Here is every kind of scene it can draw.", "hold": 0.2,
+       "visual": {"type": "grid", "heading": "Scene types", "cols": 4, "highlight": [0, 5],
+                  "tiles": [["kinetic", "words pop in"], ["step", "numbered steps"], ["prompt", "typed prompt"], ["list", "ticked list"],
+                            ["bars", "scores grow"], ["grid", "tile map"], ["table", "comparison"], ["stat", "big number"],
+                            ["compare", "before / after"], ["terminal", "command output"], ["image", "screenshot"], ["footage", "screen recording"]]}}
+    ]},
+    {"title": "How it works", "pill": 1, "lines": [
+      {"say": "Step one. Write the spec.", "hold": 0,
+       "visual": {"type": "step", "n": 1, "of": 2, "text": "Write the spec"}},
+      {"say": "Each line has the words to say, and the scene to show.", "hold": 0.4,
+       "visual": {"type": "prompt", "title": "scene.json", "tag": "JSON SPEC", "text": "{\"say\": \"Step one.\", \"visual\": {\"type\": \"step\", \"n\": 1}}"}},
+      {"say": "Then one command renders everything.", "hold": 0.4,
+       "visual": {"type": "terminal", "title": "Terminal", "lines": ["$ python render.py spec.json", "  [ 1/9]  3.10s  kinetic", "  [ 2/9]  3.40s  grid", "  [ 3/9]  2.20s  step", "done  output/pro-video-demo.mp4"]}}
+    ]},
+    {"title": "Why it matters", "pill": 2, "lines": [
+      {"say": "Compared with doing it by hand, the difference is big.", "hold": 0.3,
+       "visual": {"type": "compare", "heading": "By hand vs pro-video", "left_title": "BY HAND", "right_title": "PRO-VIDEO",
+                  "left": ["Timeline editing", "Paid voice tool", "Captions typed by hand"],
+                  "right": ["One JSON file", "Free neural voice", "Captions and chapters automatic"]}},
+      {"say": "And against a typical prompt pack, it does real work.", "hold": 0.4,
+       "visual": {"type": "table", "heading": "What it actually does", "columns": ["", "Prompt packs", "pro-video"], "ours": 2,
+                  "rows": [["Writes the script", true, true], ["Renders the video", false, true], ["Burns in captions", false, true], ["Re-renders only what changed", false, true]]}},
+      {"say": "Only the lines you change get rendered again.", "hold": 0.3,
+       "visual": {"type": "stat", "value": 1, "suffix": " line", "label": "re-rendered after a one-line edit", "color": "green"}},
+      {"say": "Scores, too, can animate.", "hold": 0.4,
+       "visual": {"type": "bars", "heading": "Hook scores", "groups": [{"name": "DRAFT", "values": [48, 55, 59], "color": "red"}, {"name": "REWRITE", "values": [66, 73], "color": "green"}]}},
+      {"say": "That's pro-video.", "hold": 0.6,
+       "visual": {"type": "card", "kicker": "THAT'S IT", "text": "Spec in, finished video out.", "color": "green"}}
+    ]}
+  ]
+}

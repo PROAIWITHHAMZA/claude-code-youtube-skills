@@ -1,0 +1,71 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1280px;height:720px;overflow:hidden;background:#060608;color:#fff;font-family:'Segoe UI Variable Display','Segoe UI',sans-serif}
+.abs{position:absolute}
+.big{font-weight:900;letter-spacing:-.04em;line-height:.9}
+.mono{font-family:'Cascadia Mono','Consolas',monospace}
+.term{background:linear-gradient(160deg,#1b1b22,#0d0d12);border:2px solid rgba(255,255,255,.18);border-radius:22px;
+  box-shadow:0 40px 90px rgba(0,0,0,.8),0 0 60px rgba(239,35,50,.35)}
+.line{display:flex;align-items:center;gap:14px;font-size:34px;font-weight:600;margin-top:16px}
+.ok{width:36px;height:36px;border-radius:18px;background:#22c55e;display:flex;align-items:center;justify-content:center;box-shadow:0 0 18px rgba(34,197,94,.8)}
+</style></head><body>
+<div class="abs" style="inset:0;background:radial-gradient(ellipse 70% 80% at 20% 30%,rgba(170,16,30,.75),rgba(0,0,0,0) 65%),radial-gradient(ellipse 50% 60% at 95% 90%,rgba(120,10,22,.6),rgba(0,0,0,0) 60%)"></div>
+<div id="v"></div>
+<script>
+const V = new URLSearchParams(location.search).get("v") || "1";
+const root = document.getElementById("v");
+const tick = '<svg width="22" height="22" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" stroke="#04140a" stroke-width="3.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const cmds = ["/pro-gap", "/pro-script", "/pro-video", "/pro-thumbs"];
+const term = (x, y, w, rot) => `<div class="abs term" style="left:${x}px;top:${y}px;width:${w}px;padding:22px 30px 30px;transform:perspective(1400px) rotateY(${rot}deg)">
+  <div style="display:flex;gap:10px;align-items:center"><span style="width:16px;height:16px;border-radius:8px;background:#ff5f57"></span><span style="width:16px;height:16px;border-radius:8px;background:#febc2e"></span><span style="width:16px;height:16px;border-radius:8px;background:#28c840"></span>
+  <span class="mono" style="margin-left:14px;font-size:24px;color:rgba(255,255,255,.75);font-weight:700">Claude Code</span></div>
+  ${cmds.map(c => `<div class="line mono"><span style="color:#ff6b6b">&gt;</span><span>${c}</span><span style="flex:1"></span><span class="ok">${tick}</span></div>`).join("")}</div>`;
+const play = (x, y, s) => `<div class="abs" style="left:${x}px;top:${y}px;width:${s}px;height:${s * .7}px;border-radius:${s * .2}px;background:#ef2332;box-shadow:0 0 60px rgba(239,35,50,.9),0 20px 50px rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center">
+  <div style="width:0;height:0;border-left:${s * .3}px solid #fff;border-top:${s * .18}px solid transparent;border-bottom:${s * .18}px solid transparent;margin-left:${s * .06}px"></div></div>`;
+if (V === "1") {
+  // the skills run in Claude Code -> a published video; Zayn on the right
+  root.innerHTML = `<img src="assets/zaynPhoto.jpg" class="abs" style="left:520px;top:0;width:1100px;height:720px;object-fit:cover;object-position:62% 30%;-webkit-mask-image:linear-gradient(90deg,transparent 0,#000 26%)">` +
+    term(40, 250, 560, 12) +
+    `<div class="abs" style="left:600px;top:390px;width:120px;height:14px;background:linear-gradient(90deg,#ff6b6b,#fff);border-radius:7px;box-shadow:0 0 20px #ef2332"></div>
+     <div class="abs" style="left:700px;top:372px;width:0;height:0;border-left:44px solid #fff;border-top:25px solid transparent;border-bottom:25px solid transparent"></div>` +
+    play(760, 330, 150) +
+    `<div class="abs big" style="left:40px;top:28px;font-size:150px;text-shadow:0 8px 40px rgba(0,0,0,.8)">IT RUNS</div>
+     <div class="abs big" style="left:40px;top:150px;font-size:110px;color:#ff3b47;text-shadow:0 8px 40px rgba(0,0,0,.8)">ITSELF</div>`;
+} else if (V === "3") {
+  // says it outright: my YouTube channel runs itself
+  root.innerHTML = `<img src="assets/zaynPhoto.jpg" class="abs" style="left:560px;top:0;width:1100px;height:720px;object-fit:cover;object-position:62% 30%;-webkit-mask-image:linear-gradient(90deg,transparent 0,#000 26%)">` +
+    term(40, 300, 540, 12) +
+    `<div class="abs" style="left:585px;top:440px;width:100px;height:14px;background:linear-gradient(90deg,#ff6b6b,#fff);border-radius:7px;box-shadow:0 0 20px #ef2332"></div>
+     <div class="abs" style="left:675px;top:422px;width:0;height:0;border-left:44px solid #fff;border-top:25px solid transparent;border-bottom:25px solid transparent"></div>` +
+    play(735, 380, 150) +
+    `<div class="abs big" style="left:40px;top:34px;font-size:118px;text-shadow:0 8px 40px rgba(0,0,0,.85)">MY YOUTUBE</div>
+     <div class="abs big" style="left:40px;top:150px;font-size:118px;color:#ff3b47;text-shadow:0 8px 40px rgba(0,0,0,.85)">RUNS ITSELF</div>`;
+} else if (V === "4") {
+  // a channel page whose video grid is being filled by Claude Code
+  const vids = ["thumbC.png", "thumbB.png", "thumbOld.png", "thumbA.png"];
+  let grid = vids.map((s, i) => { const r = Math.floor(i / 2), c = i % 2;
+    return `<div class="abs" style="left:${28 + c * 300}px;top:${118 + r * 190}px;width:280px">
+      <div style="position:relative;width:280px;height:158px;border-radius:12px;overflow:hidden;box-shadow:0 0 0 2px rgba(255,255,255,.15)"><img src="assets/${s}" style="width:100%;height:100%">
+      ${i === 3 ? `<div style="position:absolute;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:30px">UPLOADING</div><div style="position:absolute;left:0;bottom:0;height:10px;width:70%;background:#ef2332"></div>` : `<div style="position:absolute;left:10px;top:10px;padding:4px 10px;border-radius:8px;background:#22c55e;color:#04140a;font-weight:900;font-size:18px">NEW</div>`}</div></div>`; }).join("");
+  root.innerHTML = `<img src="assets/zaynPhoto.jpg" class="abs" style="left:600px;top:0;width:1100px;height:720px;object-fit:cover;object-position:62% 30%;-webkit-mask-image:linear-gradient(90deg,transparent 0,#000 26%)">
+    <div class="abs term" style="left:30px;top:250px;width:640px;height:520px;padding:0;overflow:hidden;transform:perspective(1400px) rotateY(10deg)">
+      <div style="display:flex;align-items:center;gap:16px;padding:22px 28px;border-bottom:1px solid rgba(255,255,255,.12)">
+        <div style="width:64px;height:64px;border-radius:32px;background:url(assets/zaynPhoto.jpg) 60% 25%/220% no-repeat;box-shadow:0 0 0 3px #ef2332"></div>
+        <div><div style="font-size:30px;font-weight:800">My channel</div><div style="font-size:20px;color:rgba(255,255,255,.6)">new video every week</div></div>
+        <div style="flex:1"></div><div style="padding:10px 20px;border-radius:24px;background:#fff;color:#000;font-weight:800;font-size:22px">Subscribe</div></div>
+      ${grid}</div>
+    <div class="abs mono" style="left:430px;top:620px;padding:12px 20px;border-radius:14px;background:#0d0d12;border:2px solid rgba(255,255,255,.25);font-size:26px;font-weight:700;box-shadow:0 20px 50px rgba(0,0,0,.8),0 0 30px rgba(34,197,94,.4)"><span style="color:#ff6b6b">&gt;</span> /pro-video <span style="color:#22c55e">✓</span></div>
+    <div class="abs big" style="left:36px;top:30px;font-size:120px;text-shadow:0 8px 40px rgba(0,0,0,.85)">YOUTUBE ON</div>
+    <div class="abs big" style="left:36px;top:142px;font-size:120px;color:#ff3b47;text-shadow:0 8px 40px rgba(0,0,0,.85)">AUTOPILOT</div>`;
+} else {
+  // a wall of 16 glowing skill tiles behind Zayn, big "16 SKILLS", "$0" badge
+  let tiles = "";
+  const names = ["gap", "viral", "audit", "plan", "script", "title", "record", "edit", "video", "shorts", "thumbs", "seo", "chapters", "brand", "retention", "comments"];
+  names.forEach((n, i) => { const r = Math.floor(i / 4), c = i % 4;
+    tiles += `<div class="abs mono" style="left:${40 + c * 150}px;top:${270 + r * 108}px;width:138px;height:94px;border-radius:16px;border:2px solid rgba(255,110,110,.7);background:rgba(239,35,50,.16);box-shadow:0 0 22px rgba(239,35,50,.45);display:flex;align-items:center;justify-content:center;font-size:21px;font-weight:700">/${n}</div>`; });
+  root.innerHTML = `<img src="assets/zaynPhoto.jpg" class="abs" style="left:520px;top:0;width:1100px;height:720px;object-fit:cover;object-position:62% 30%;-webkit-mask-image:linear-gradient(90deg,transparent 0,#000 26%)">` + tiles +
+    `<div class="abs big" style="left:40px;top:40px;font-size:190px;text-shadow:0 8px 40px rgba(0,0,0,.8)">16 <span style="color:#ff3b47">AI</span></div>
+     <div class="abs" style="left:660px;top:560px;padding:14px 30px;border-radius:20px;background:#22c55e;color:#04140a;font-weight:900;font-size:64px;box-shadow:0 0 40px rgba(34,197,94,.7)">$0</div>`;
+}
+</script></body></html>
